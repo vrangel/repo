@@ -1,0 +1,17 @@
+HOST kdop-bastion
+    User ec2-user
+    IdentityFile /c/Users/vrangel/Documents/Kroton/kdop-core.pem
+    Hostname 100.25.53.102
+
+HOST uat-kdop-bastion
+    User ec2-user
+    IdentityFile /c/Users/vrangel/Documents/Kroton/uat-kdop-core.pem
+    Hostname 50.19.29.157
+	
+HOST 10.150.*
+    IdentityFile /c/Users/vrangel/Documents/Kroton/kdop-core.pem
+    ProxyCommand ssh -W %h:%p kdop-bastion
+
+HOST 10.100.*
+    IdentityFile /c/Users/vrangel/Documents/Kroton/uat-kdop-core.pem
+    ProxyCommand ssh -W %h:%p uat-kdop-bastion
