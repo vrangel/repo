@@ -1,0 +1,43 @@
+language: python
+python:
+  - "3.6"
+
+env:
+  global:
+    - SPARK_VERSION=2.3.1
+    - HIVE_VERSION=3.0.0
+    - CODE_CLIMATE_TOKEN=422f3e4e0957a2f5c106e2427df6cc3fc1e52c74
+    - CODECLIMATE_REPO_TOKEN=e7d026b46efe560ee3a4f7a4053026b2133c85d12e6ece83917c38db189529b3
+    - CC_TEST_REPORTER_ID=e7d026b46efe560ee3a4f7a4053026b2133c85d12e6ece83917c38db189529b3
+cache:
+    apt: true
+    directories:
+        - $HOME/.cache/pip
+
+addons:
+    apt:
+        packages:
+            - openjdk-8-jdk
+
+install:
+  - pip install -r dev.requirements.txt
+  - wget http://ftp.unicamp.br/pub/apache/spark/spark-$SPARK_VERSION/spark-$SPARK_VERSION-bin-hadoop2.7.tgz
+  - tar -xzf spark-$SPARK_VERSION-bin-hadoop2.7.tgz
+  - sudo mv spark-$SPARK_VERSION-bin-hadoop2.7 /opt/spark
+  - source ~/.bashrc
+  - rm -rf spark-$SPARK_VERSION-bin-hadoop2.7
+  - rm spark-$SPARK_VERSION-bin-hadoop2.7.tgz
+  - wget http://ftp.unicamp.br/pub/apache/hive/hive-$HIVE_VERSION/apache-hive-$HIVE_VERSION-bin.tar.gz
+  - tar -xzf apache-hive-$HIVE_VERSION-bin.tar.gz
+  - sudo mv apache-hive-$HIVE_VERSION-bin.tar.gz /opt/hive
+  - source ~/.bashrc
+  - rm -rf apache-hive-$HIVE_VERSION
+
+script:
+  - pytest --cov=cleansing --cov=datasets --cov=models --cov=orchestrator --cov=processor --cov=repository --cov=transformation --cov=utils
+  - codeclimate-test-reporter --file .coverage
+
+branches:
+  only:
+  - development
+  - master

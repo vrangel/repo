@@ -1,0 +1,222 @@
+version: '3.7'
+
+networks:
+  default:
+    external:
+      name: devops-network
+
+volumes:
+  openldap-etc-volume:
+  openldap-repo-volume:
+  lam-config-volume:
+  smtp-relay-volume:
+  pg-gitlab-volume:
+  gitlab-config-volume:
+  gitlab-log-volume:
+  gitlab-data-volume:
+  jenkins-volume:
+  nexus-volume:
+  pg-sonar-volume:
+  sonar-config-volume:
+  sonar-data-volume:
+  sonar-extensions-volume:
+  sonar-plugins-volume:
+  nginx-site-volume:
+  nginx-conf-volume:
+
+services:
+  openldap:
+    image: openfrontier/openldap-server
+    restart: unless-stopped
+    ports:
+     - "389"
+    volumes:
+     - openldap-etc-volume:/etc/ldap
+     - openldap-repo-volume:/var/lib/ldap
+    environment:
+      SLAPD_PASSWORD: acnkroton
+      SLAPD_DOMAIN: kroton.com.br
+      SLAPD_ADDITIONAL_SCHEMAS: ppolicy
+      SLAPD_ADDITIONAL_MODULES: ppolicy
+      DEBUG_LEVEL: 256
+
+  lam:
+    image: openfrontier/lam
+    restart: unless-stopped
+    ports:
+     - "80"
+    volumes:
+     - lam-config-volume:/var/www/html/lam/config
+    environment:
+      LDAP_URL: ldap://openldap
+      LDAP_PORT: 389
+      LDAP_ADMIN: cn=admin,dc=kroton,dc=com,dc=br
+      SLAPD_DN: dc=kroton,dc=com,dc=br
+      USER_DN: ou=accounts,dc=kroton,dc=com,dc=br
+      GROUP_DN: ou=groups,dc=kroton,dc=com,dc=br
+
+  ssp:
+    image: openfrontier/ldap-ssp
+    restart: unless-stopped
+    ports:
+     - "80"
+    environment:
+      LDAP_URL: ldap://openldap
+      LDAP_BASE: ou=accounts,dc=kroton,dc=com,dc=br
+      LDAP_BINDDN: cn=admin,dc=kroton,dc=com,dc=br
+      LDAP_BINDPW: acnkroton
+      SMTP_HOST: smtp-relay
+      SMTP_USER: admin
+      SMTP_PASS: acnkroton
+      MAIL_FROM: kdop@kroton.com.br
+      PWD_MIN_LENGTH: 0
+      PWD_MAX_LENGTH: 0
+      PWD_MIN_LOWER: 1
+      PWD_MIN_UPPER: 1
+      PWD_MIN_DIGIT: 2
+      PWD_MIN_SPECIAL: 0
+      PWD_SPECIAL_CHARS: "^a-zA-Z0-9!@#$$%"
+
+  smtp-relay:
+    image: turgon37/smtp-relay
+    restart: unless-stopped
+    ports:
+     - "25"
+    volumes:
+     - smtp-relay-volume:/data
+    environment:
+      RELAY_MYDOMAIN: kroton.com.br
+      RELAY_HOST: localhost
+
+  pg-gitlab:
+    image: postgres
+    restart: unless-stopped
+    ports:
+      - "5432"
+    volumes:
+      - pg-gitlab-volume:/var/lib/postgresql/data
+    environment:
+      POSTGRES_USER: gitlab
+      POSTGRES_PASSWORD: gitlab
+      POSTGRES_DB: gitlab
+
+  gitlab:
+    image: gitlab/gitlab-ce
+    restart: unless-stopped
+    ports:
+      - '80'
+      - '22'
+    volumes:
+      - gitlab-config-volume:/etc/gitlab
+      - gitlab-log-volume:/var/log/gitlab
+      - gitlab-data-volume:/var/opt/gitlab
+    depends_on:
+     - "pg-gitlab"
+    environment:
+      GITLAB_OMNIBUS_CONFIG: |
+        external_url 'http://devops.kroton.com.br/gitlab'
+        gitlab_rails['gitlab_shell_ssh_port'] = 22
+        gitlab_rails['time_zone'] = "America/Sao_Paulo"
+        postgresql['enable'] = false
+        gitlab_rails['db_adapter'] = "postgresql"
+        gitlab_rails['db_encoding'] = "unicode"
+        gitlab_rails['db_database'] = "gitlab"
+        gitlab_rails['db_pool'] = 10
+        gitlab_rails['db_username'] = "gitlab"
+        gitlab_rails['db_password'] = "gitlab"
+        gitlab_rails['db_host'] = "pg-gitlab"
+        gitlab_rails['db_port'] = 5432
+        gitlab_rails['smtp_enable'] = true
+        gitlab_rails['smtp_address'] = "${SMTP_SERVER}"
+        gitlab_rails['smtp_port'] = 25
+        gitlab_rails['smtp_user_name'] = "${SMTP_USER}"
+        gitlab_rails['smtp_password'] = "${SMTP_PASS}"
+        gitlab_rails['smtp_authentication'] = "login"
+        gitlab_rails['gitlab_email_enabled'] = true
+        gitlab_rails['gitlab_email_from'] = "kdop-admin@kroton.com.br"
+        gitlab_rails['gitlab_email_display_name'] = 'Gitlab'
+        gitlab_rails['gitlab_email_reply_to'] = "kdop-admin@kroton.com.br"
+        gitlab_rails['gitlab_email_subject_suffix'] = ''
+        gitlab_rails['gitlab_default_projects_features_builds'] = false
+        gitlab_rails['gitlab_default_projects_features_container_registry'] = false
+        prometheus_monitoring['enable'] = false
+        gitlab_rails['ldap_enabled'] = true
+        gitlab_rails['ldap_servers'] = YAML.load <<-'EOS' # remember to close thise this block with 'EOS' below
+          main: # 'main' is the GitLab 'provider ID' of this LDAP server
+            label: 'LDAP'
+            host: 'openldap'
+            port: 389
+            uid: 'uid'
+            method: 'plain' # "tls" or "ssl" or "plain"
+            bind_dn: 'cn=admin,dc=kroton,dc=com,dc=br'
+            password: 'acnkroton'
+            active_directory: false
+            allow_username_or_email_login: true
+            base: 'ou=accounts,dc=kroton,dc=com,dc=br'
+        EOS
+
+  jenkins:
+    image: jenkins/jenkins:lts
+    restart: unless-stopped
+    ports:
+      - "8080"
+      - "50000:50000"
+      - "53203:53203"
+    volumes:
+      - jenkins-volume:/var/jenkins_home
+    environment:
+      JAVA_OPTS: "-Duser.timezone=America/Sao_Paulo -Djenkins.install.runSetupWizard=false"
+      JENKINS_OPTS: --prefix=/jenkins
+
+  nexus:
+    image: sonatype/nexus3
+    restart: unless-stopped
+    ports:
+      - "8081"
+    environment:
+      NEXUS_CONTEXT: nexus
+      INSTALL4J_ADD_VM_PARAMS: "-Xms2g -Xmx2g -XX:MaxDirectMemorySize=3g -Djava.util.prefs.userRoot=/nexus-data/javaprefs"
+    volumes:
+      - nexus-volume:/nexus-data
+
+  pg-sonar:
+    image: postgres
+    restart: unless-stopped
+    ports:
+      - "5432"
+    volumes:
+      - pg-sonar-volume:/var/lib/postgresql/data
+    environment:
+      POSTGRES_USER: sonar
+      POSTGRES_PASSWORD: sonar
+      POSTGRES_DB: sonar
+
+  sonarqube:
+    image: owasp/sonarqube
+    ports:
+      - "9000"
+      - "9092"
+    depends_on:
+      - pg-sonar
+    environment:
+      SONARQUBE_JDBC_USERNAME: sonar
+      SONARQUBE_JDBC_PASSWORD: sonar
+      SONARQUBE_JDBC_URL: jdbc:postgresql://pg-sonar:5432/sonar
+    volumes:
+      - sonar-config-volume:/opt/sonarqube/conf
+      - sonar-data-volume:/opt/sonarqube/data
+      - sonar-extensions-volume:/opt/sonarqube/extensions
+      - sonar-plugins-volume:/opt/sonarqube/lib/bundled-plugins
+
+  nginx:
+    image: nginx
+    restart: unless-stopped
+    ports:
+     - "80:80"
+    volumes:
+      - nginx-site-volume:/usr/share/nginx/html
+      - nginx-conf-volume:/etc/nginx/conf.d
+    deploy:
+      replicas: 1
+      update_config:
+        delay: 10s	
